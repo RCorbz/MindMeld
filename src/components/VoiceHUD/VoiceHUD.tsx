@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Mic, Check } from "lucide-react";
+import { Mic, Check, LayoutGrid } from "lucide-react";
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 import { VOICE_CONFIG } from "@/lib/voice.config";
 
@@ -21,6 +22,10 @@ export default function VoiceHUD() {
         E: false, // Effort
     });
 
+    // Review state
+    const [isReviewing, setIsReviewing] = useState(false);
+    const [parsedData, setParsedData] = useState<any>(null);
+
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
     // 1. T.I.D.E. Regex Logic
@@ -30,131 +35,120 @@ export default function VoiceHUD() {
         const lower = transcript.toLowerCase();
 
         setTide({
-            // Topic is "detected" if we have a reasonable amount of context (e.g. > 5 words)
-            T: lower.split(" ").length > 5,
-            // Impact: Monies, importance
-            I: /(\$|dollar|revenue|critical|important|high stakes|priority|urgent)/.test(lower),
+            // Topic: Detected if > 5 words
+            T: lower.split(/\s+/).filter(w => w.length > 0).length > 5,
+            // Impact: Monies (plural), importance
+            I: /\b(\$|dollars?|revenue|critical|important|high stakes|priority|urgent)\b/.test(lower),
             // Deadline: Timeframes
-            D: /(today|tomorrow|friday|monday|tuesday|wednesday|thursday|january|february|soon|deadline|next week)/.test(lower),
-            // Effort: Duration
-            E: /(hour|minute|day|week|month|mins|secs|time)/.test(lower),
+            D: /\b(today|tomorrow|friday|monday|tuesday|wednesday|thursday|january|february|soon|deadline|next week)\b/.test(lower),
+            // Effort: Duration (plural, and additional common terms like 'hrs')
+            E: /\b(hours?|minutes?|days?|weeks?|months?|mins?|secs?|hrs?|time)\b/.test(lower),
         });
     }, [transcript]);
 
-    // 2. Start Recording
+    const transcriptRef = useRef("");
+
+    // 2. Start Recording (same as before)
     const startRecording = async () => {
         setIsRecording(true);
         setTranscript("");
+        transcriptRef.current = "";
+        setIsReviewing(false); // Reset review
+        setTaskId(null); // Reset task id
 
         try {
-            // Get Temp Key
             const response = await fetch("/api/transcribe");
             const data = await response.json();
-
             if (!data.key) throw new Error("No key returned");
-
             const deepgram = createClient(data.key);
-
-            // Connect to Deepgram
             const conn = deepgram.listen.live(VOICE_CONFIG);
 
             conn.on(LiveTranscriptionEvents.Open, () => {
-                console.log("🌊 Deepgram Connection OPEN");
-
-                // Start Microphone
                 navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-                    console.log("🎤 Microphone Access GRANTED");
-
-                    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-                        ? "audio/webm;codecs=opus"
-                        : "audio/webm";
-
-                    console.log(`ℹ️ Using MIME Type: ${mimeType}`);
-
-                    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+                    const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
                     mediaRecorderRef.current = mediaRecorder;
-
                     mediaRecorder.addEventListener("dataavailable", (event) => {
-                        if (event.data.size > 0 && conn.getReadyState() === 1) {
-                            conn.send(event.data);
-                            console.log(`📤 Sent audio chunk: ${event.data.size} bytes`);
-                        }
+                        if (event.data.size > 0 && conn.getReadyState() === 1) conn.send(event.data);
                     });
-
-                    mediaRecorder.start(250); // Send chunks every 250ms
-                }).catch(err => console.error("🎤 Microphone Access DENIED:", err));
+                    mediaRecorder.start(250);
+                });
             });
 
             conn.on(LiveTranscriptionEvents.Transcript, (data) => {
-                const sentence = data.channel.alternatives[0]?.transcript; // Optional chaining
+                const sentence = data.channel.alternatives[0]?.transcript;
                 if (sentence) {
-                    console.log("📝 Transcript received:", sentence);
-                    setTranscript((prev) => prev + " " + sentence);
+                    const newTranscript = transcriptRef.current + " " + sentence;
+                    transcriptRef.current = newTranscript;
+                    setTranscript(newTranscript);
                 }
             });
 
-            conn.on(LiveTranscriptionEvents.Error, (err) => {
-                console.error("🌊 Deepgram Error:", err);
-            });
-
-            conn.on(LiveTranscriptionEvents.Close, () => {
-                console.log("🌊 Deepgram Connection CLOSED");
-            });
-
             setConnection(conn);
-
         } catch (error) {
-            console.error("❌ Recording Start Error:", error);
             setIsRecording(false);
         }
     };
 
-    // 3. Stop Recording
+    // 3. Stop Recording -> Review
     const stopRecording = async () => {
         setIsRecording(false);
-
         if (mediaRecorderRef.current) {
             mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
             mediaRecorderRef.current.stop();
-            mediaRecorderRef.current = null;
         }
+        if (connection) connection.requestClose();
 
-        if (connection) {
-            connection.requestClose();
-            setConnection(null);
-        }
+        const finalTranscript = transcriptRef.current;
 
-        // REAL BACKEND INTEGRATION
-        if (transcript.length > 5) {
+        if (finalTranscript.length > 5) {
             setProcessing(true);
-
             try {
                 const response = await fetch("/api/parse", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ transcript }),
+                    body: JSON.stringify({ transcript: finalTranscript }),
                 });
 
                 const data = await response.json();
-
-                if (response.ok && data.id) {
-                    setTaskId(data.id.substring(0, 8).toUpperCase()); // Show short UUID
-                } else {
-                    console.error("Parse Failed:", data.error);
-                    setTaskId("ERROR"); // Fallback
+                if (response.ok && data.parsed) {
+                    setParsedData(data.parsed);
+                    setIsReviewing(true); // Switch to review mode
                 }
             } catch (err) {
-                console.error("Network Error:", err);
-                setTaskId("OFFLINE");
+                console.error("Parse Error:", err);
             } finally {
                 setProcessing(false);
             }
         }
     };
 
+    // 4. Confirm & Save
+    const confirmTask = async () => {
+        if (!parsedData) return;
+        setProcessing(true);
+        try {
+            const response = await fetch("/api/tasks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(parsedData),
+            });
+            const data = await response.json();
+            if (response.ok && data.id) {
+                setTaskId(data.id.substring(0, 8).toUpperCase());
+                setIsReviewing(false);
+            }
+        } catch (err) {
+            console.error("Confirm Error:", err);
+        } finally {
+            setProcessing(false);
+        }
+    };
+
     const resetForNextTask = () => {
         setTaskId(null);
         setTranscript("");
+        setIsReviewing(false);
+        setParsedData(null);
         setTide({ T: false, I: false, D: false, E: false });
     };
 
@@ -181,10 +175,17 @@ export default function VoiceHUD() {
     return (
         <div className="fixed inset-0 flex flex-col items-center justify-between text-white bg-black select-none font-sans">
 
-            {/* 1. Header Area with Alpha Tag */}
-            <div className="w-full pt-8 px-6 flex justify-between items-center z-10 opacity-50">
-                <h1 className="text-sm font-bold tracking-widest uppercase text-zinc-600">Mind Meld // Alpha</h1>
-                <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-zinc-800'}`} />
+            <div className="w-full pt-8 px-6 flex justify-between items-center z-10 opacity-50 text-zinc-600">
+                <div className="flex items-center gap-2">
+                    <img src="/icon.svg" alt="Mind Meld" className="h-4 w-4" />
+                    <h1 className="text-sm font-bold tracking-widest uppercase">Mind Meld // Alpha</h1>
+                </div>
+                <div className="flex items-center gap-4">
+                    <Link href="/audit" className="hover:text-white transition-colors">
+                        <LayoutGrid size={18} />
+                    </Link>
+                    <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-zinc-800'}`} />
+                </div>
             </div>
 
             {/* 2. Main Content Stream */}
@@ -208,12 +209,80 @@ export default function VoiceHUD() {
                             >
                                 NEXT TASK
                             </button>
-                            <button
-                                className="flex-1 bg-zinc-800 text-zinc-400 text-xs font-bold py-3 rounded-xl border border-zinc-700 hover:bg-zinc-700 transition-colors"
+                            <Link
+                                href="/audit"
+                                className="flex-1 bg-zinc-800 text-zinc-400 text-xs font-bold py-3 rounded-xl border border-zinc-700 hover:bg-zinc-700 transition-colors flex items-center justify-center"
                             >
                                 FINISH AUDIT
-                            </button>
+                            </Link>
                         </div>
+                    </motion.div>
+                ) : isReviewing && parsedData ? (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="w-full max-w-md bg-zinc-900/80 border border-white/10 rounded-3xl p-6 backdrop-blur-2xl shadow-2xl flex flex-col gap-6"
+                    >
+                        <div className="flex flex-col gap-1">
+                            <h2 className="text-[10px] font-bold tracking-[0.2em] text-zinc-500 uppercase">Confirm Task Intent</h2>
+                            <input
+                                className="bg-transparent text-2xl font-light text-white outline-none border-b border-white/5 focus:border-blue-400 transition-colors w-full pb-2"
+                                value={parsedData.title}
+                                onChange={(e) => setParsedData({ ...parsedData, title: e.target.value })}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[9px] font-bold text-zinc-600 tracking-widest uppercase">Impact (1-10)</span>
+                                <input
+                                    type="number"
+                                    className="bg-zinc-800/50 p-3 rounded-xl text-lg font-mono text-purple-400 outline-none border border-white/5 focus:border-purple-400"
+                                    value={parsedData.impact_score}
+                                    onChange={(e) => setParsedData({ ...parsedData, impact_score: parseInt(e.target.value) })}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-[9px] font-bold text-zinc-600 tracking-widest uppercase">Effort (Hrs)</span>
+                                <input
+                                    type="number"
+                                    className="bg-zinc-800/50 p-3 rounded-xl text-lg font-mono text-orange-400 outline-none border border-white/5 focus:border-orange-400"
+                                    value={parsedData.effort_hours}
+                                    onChange={(e) => setParsedData({ ...parsedData, effort_hours: parseFloat(e.target.value) })}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <span className="text-[9px] font-bold text-zinc-600 tracking-widest uppercase">Financial Value ($)</span>
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">$</span>
+                                <input
+                                    type="number"
+                                    className="w-full bg-zinc-800/50 p-3 pl-7 rounded-xl text-lg font-mono text-zinc-300 outline-none border border-white/5 focus:border-zinc-400"
+                                    value={parsedData.financial_value}
+                                    onChange={(e) => setParsedData({ ...parsedData, financial_value: parseFloat(e.target.value) })}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <span className="text-[9px] font-bold text-zinc-600 tracking-widest uppercase">Deadline</span>
+                            <input
+                                type="date"
+                                className="bg-zinc-800/50 p-3 rounded-xl text-sm font-mono text-green-400 outline-none border border-white/5 focus:border-green-400"
+                                value={parsedData.deadline || ""}
+                                onChange={(e) => setParsedData({ ...parsedData, deadline: e.target.value })}
+                            />
+                        </div>
+
+                        <button
+                            onClick={confirmTask}
+                            disabled={processing}
+                            className="w-full bg-blue-500 hover:bg-blue-400 text-white font-bold py-4 rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all active:scale-[0.98] disabled:opacity-50"
+                        >
+                            {processing ? "SAVING..." : "CONFIRM & LOG TASK"}
+                        </button>
                     </motion.div>
                 ) : processing ? (
                     <motion.div
@@ -232,7 +301,7 @@ export default function VoiceHUD() {
                     >
                         <p className="text-3xl font-light leading-snug tracking-wide text-zinc-100">
                             {transcript}
-                            <span className="inline-block w-2 H-6 bg-green-500 ml-1 animate-pulse" />
+                            <span className="inline-block w-2 h-6 bg-green-500 ml-1 animate-pulse" />
                         </p>
                     </motion.div>
                 ) : (

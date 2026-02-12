@@ -1,19 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-
-// Initialize Supabase Client (Service Role for API routes if needed, but Anon is fine for now with RLS)
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-// Regex Patterns for T.I.D.E. (Simple Heuristic for Alpha)
-const PATTERNS = {
-    IMPACT: /(high|critical|important|huge) impact/i,
-    EFFORT: /(\d+|one|two|five) (hour|minute|day)/i,
-    DEADLINE: /by (friday|monday|tomorrow|next week)/i,
-    FINANCIAL: /\$(\d+)/,
-};
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export async function POST(req: Request) {
     try {
@@ -23,56 +10,89 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "No transcript provided" }, { status: 400 });
         }
 
-        console.log("🧠 Parsing Transcript:", transcript);
+        console.log("🧠 PARSE START - Transcript:", transcript);
 
-        // 1. EXTRACT METADATA (Heuristic)
-        const impactMatch = transcript.match(PATTERNS.IMPACT);
-        const effortMatch = transcript.match(PATTERNS.EFFORT);
-        const deadlineMatch = transcript.match(PATTERNS.DEADLINE);
-        const financialMatch = transcript.match(PATTERNS.FINANCIAL);
+        // 1. Validate Environment Variables
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        const geminiApiKey = process.env.GEMINI_API_KEY;
 
-        // DEFAULT VALUES
-        let impactScore = 1;
-        if (impactMatch) impactScore = 8; // High impact keyword -> 8/10
-
-        let effortHours = 1.0;
-        if (effortMatch) {
-            // Rough parser: "two hours" -> 2
-            const val = parseInt(effortMatch[1]) || (effortMatch[1] === 'two' ? 2 : 1);
-            effortHours = val;
+        if (!supabaseUrl || !supabaseKey || !geminiApiKey) {
+            console.error("❌ Missing Env Vars");
+            return NextResponse.json({
+                error: "Server configuration missing",
+                details: "Check Supabase and Gemini API keys in .env.local"
+            }, { status: 500 });
         }
 
-        // 2. INSERT INTO SUPABASE
-        const { data, error } = await supabase
-            .from("tasks")
-            .insert({
-                title: transcript, // Use full transcript as title for now
-                status: "todo",
-                impact_score: impactScore,
-                effort_hours: effortHours,
-                deadline: deadlineMatch ? new Date() : null, // Todo: accurate date parsing
-                urgency: deadlineMatch ? 2.0 : 1.0,
-            })
-            .select("id")
-            .single();
+        // 2. Initialize Clients
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        const genAI = new GoogleGenerativeAI(geminiApiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-        if (error) {
-            console.error("❌ Supabase Insert Error:", error);
-            throw error;
-        }
+        // 3. Prompt Gemini
+        const prompt = `
+            You are a task management AI. Extract task data from this transcript: "${transcript}"
+            Return a JSON object with these EXACT keys:
+            - "title": string (3-10 words)
+            - "impact_score": integer (1-10)
+            - "financial_value": number (dollar amount, 0 if none)
+            - "deadline": "YYYY-MM-DD" or null
+            - "effort_hours": number (estimated hours)
+            - "urgency": integer (1-10)
+            
+            Return ONLY the raw JSON object. No markdown.
+        `;
 
-        console.log("✅ Task Created:", data.id);
+        try {
+            console.log("📡 Calling Gemini (gemini-1.5-flash)...");
+            const result = await model.generateContent(prompt);
+            const responseText = result.response.text();
+            console.log("✨ Gemini Raw Response:", responseText);
 
-        return NextResponse.json({
-            id: data.id,
-            parsed: {
-                impact: impactScore,
-                effort: effortHours
+            // Extract JSON even if wrapped in markdown
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            const jsonStr = jsonMatch ? jsonMatch[0] : responseText;
+
+            let parsed;
+            try {
+                parsed = JSON.parse(jsonStr);
+            } catch (pErr: any) {
+                console.error("❌ JSON Parse Failed. Raw:", jsonStr);
+                return NextResponse.json({
+                    error: "AI returned invalid JSON",
+                    message: pErr.message,
+                    raw: responseText
+                }, { status: 500 });
             }
-        });
 
-    } catch (error) {
-        console.error("❌ Parse API Error:", error);
-        return NextResponse.json({ error: "Failed to parse intent" }, { status: 500 });
+            console.log("✅ Parsed JSON:", parsed);
+
+            console.log("✅ Parsed JSON:", parsed);
+
+            // 4. Data Normalization (for preview)
+            const normalized = {
+                title: parsed.title || transcript.substring(0, 50),
+                impact_score: parseInt(parsed.impact_score) || 1,
+                financial_value: parseFloat(String(parsed.financial_value || 0).replace(/[^0-9.]/g, '')),
+                effort_hours: parseFloat(String(parsed.effort_hours || 1.0).replace(/[^0-9.]/g, '')),
+                deadline: parsed.deadline,
+                urgency: parseInt(parsed.urgency) || 1,
+            };
+
+            return NextResponse.json({ parsed: normalized });
+
+        } catch (innerErr: any) {
+            console.error("❌ Processing failed:", innerErr);
+            return NextResponse.json({
+                error: "Processing failed",
+                message: innerErr.message,
+                details: innerErr.toString()
+            }, { status: 500 });
+        }
+
+    } catch (outerErr: any) {
+        console.error("❌ Server Error:", outerErr);
+        return NextResponse.json({ error: "Internal server error", message: outerErr.message }, { status: 500 });
     }
 }

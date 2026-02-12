@@ -1,6 +1,6 @@
 export const VOICE_CONFIG = {
-    // The 'Experience': Nova-2 (Fastest, most accurate for commands)
-    model: "nova-2",
+    // The 'Experience': Nova-3 (Flagship, Lower WER, <300ms latency)
+    model: "nova-3",
     language: "en",
     smart_format: true,
 
