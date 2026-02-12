@@ -114,6 +114,7 @@ export default function VoiceHUD() {
         setIsRecording(false);
 
         if (mediaRecorderRef.current) {
+            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
             mediaRecorderRef.current.stop();
             mediaRecorderRef.current = null;
         }
