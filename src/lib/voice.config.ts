@@ -10,6 +10,4 @@ export const VOICE_CONFIG = {
     vad_events: true,
 
     // Audio Config
-    encoding: "linear16",
-    sample_rate: 16000,
 } as const;

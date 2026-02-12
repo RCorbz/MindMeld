@@ -39,19 +39,25 @@ export default function RingSegment({
 
     const pathData = describeArc(100, 100, 80, startAngle, endAngle); // 100,100 center, 80 radius
 
+    // Calculate arc length for dasharray animation
+    const radius = 80;
+    const angleDiff = Math.abs(endAngle - startAngle);
+    const arcLength = (2 * Math.PI * radius * angleDiff) / 360;
+
     return (
         <motion.path
             d={pathData}
             fill="none"
-            stroke={isActive ? color : "#333333"}
+            stroke={isActive ? color : "#444444"}
             strokeWidth="12"
             strokeLinecap="round"
-            initial={{ stroke: "#333333" }}
+            initial={{ strokeDasharray: arcLength, strokeDashoffset: arcLength, stroke: "#444444" }}
             animate={{
                 stroke: isActive ? color : "#333333",
-                filter: isActive ? `drop-shadow(0 0 8px ${color})` : "none"
+                filter: isActive ? `drop-shadow(0 0 8px ${color})` : "none",
+                strokeDashoffset: isActive ? 0 : arcLength
             }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.5, ease: "easeInOut" }}
             className="transition-colors duration-300"
         />
     );
