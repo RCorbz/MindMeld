@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import StrategyCard from "@/components/StrategyCard";
+
 interface Task {
     id: string;
     title: string;
@@ -38,13 +40,25 @@ export default function AuditPage() {
     const [timeLeft, setTimeLeft] = useState(600); // 10 minutes session
     const [isConsiglieriLoading, setIsConsiglieriLoading] = useState(false);
     const [proposal, setProposal] = useState<Proposal | null>(null);
-    const [showRationale, setShowRationale] = useState(false);
     const router = useRouter();
 
-    const confirmPath = () => {
-        // Clear proposal and navigate to Home HUD
-        setProposal(null);
-        router.push("/");
+    const confirmPath = async () => {
+        if (!proposal) return;
+
+        try {
+            await fetch("/api/tasks/focus", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    focus_ids: proposal.focus_tasks,
+                    prune_ids: proposal.prune_tasks
+                }),
+            });
+            setProposal(null);
+            router.push("/");
+        } catch (err) {
+            console.error("Confirm Path Error:", err);
+        }
     };
 
     // 1. Fetch Tasks
@@ -142,9 +156,7 @@ export default function AuditPage() {
 
             {/* 1. Sticky Blitz Header */}
             <div className="sticky top-0 z-40 flex items-center justify-between pb-6 pt-2 bg-black/80 backdrop-blur-md">
-                <Link href="/" className="bg-zinc-900 border border-white/5 p-2 rounded-xl text-zinc-500 hover:text-white transition-colors">
-                    <ArrowLeft size={20} />
-                </Link>
+                <div className="w-10 h-10" /> {/* Spacer instead of back arrow */}
 
                 <div className="flex flex-col items-center gap-1">
                     <span className="text-[9px] font-bold tracking-[0.3em] text-zinc-600 uppercase">Daily Blitz Timer</span>
@@ -177,7 +189,7 @@ export default function AuditPage() {
                     ) : (
                         <div className="flex flex-col gap-3 pb-32">
                             <AnimatePresence mode="popLayout">
-                                {tasks.map((task, idx) => {
+                                {tasks.map((task) => {
                                     const isFocus = proposal?.focus_tasks.includes(task.id);
                                     const isPrune = proposal?.prune_tasks.includes(task.id);
 
@@ -232,8 +244,8 @@ export default function AuditPage() {
                 </div>
             </div>
 
-            {/* 3. Mobile Bottom Nav */}
-            <div className="fixed bottom-0 left-0 right-0 p-6 z-40 pointer-events-none">
+            {/* 3. Mobile Bottom Action */}
+            <div className="fixed bottom-28 left-0 right-0 p-6 z-40 pointer-events-none">
                 <div className="max-w-md mx-auto flex items-center justify-center pointer-events-auto">
                     <button
                         onClick={getAdvice}
@@ -255,84 +267,14 @@ export default function AuditPage() {
             </div>
 
             {/* 4. Strategic Proposal Overlay */}
-            <AnimatePresence>
-                {proposal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/60 backdrop-blur-xl z-[60] flex items-end sm:items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ y: 100, scale: 0.95 }}
-                            animate={{ y: 0, scale: 1 }}
-                            exit={{ y: 100, scale: 0.95 }}
-                            className="bg-zinc-900 border border-white/10 rounded-[3rem] p-8 w-full max-w-lg shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
-                        >
-                            <div className="flex justify-between items-start mb-8">
-                                <div className="flex items-center gap-3">
-                                    <div className="bg-blue-500/10 p-3 rounded-2xl text-blue-400 border border-blue-500/20">
-                                        <ShieldAlert size={24} />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-sm font-bold tracking-widest uppercase">The Consiglieri</h3>
-                                        <p className="text-[10px] text-zinc-500 mt-0.5 font-medium uppercase tracking-tighter">Strategic Path Forward</p>
-                                    </div>
-                                </div>
-                                <button onClick={() => setProposal(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors text-zinc-500">
-                                    <X size={20} />
-                                </button>
-                            </div>
-
-                            <div className="space-y-8 mb-10 text-center">
-                                <div className="flex flex-col gap-4">
-                                    <h4 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Expected Daily Outcome</h4>
-                                    <p className="text-3xl font-light text-green-400 tracking-tight leading-tight px-4">
-                                        {proposal.outcome_prediction}
-                                    </p>
-                                </div>
-
-                                <div className="flex flex-col items-center gap-2">
-                                    <button
-                                        onClick={() => setShowRationale(!showRationale)}
-                                        className="text-[10px] font-bold text-zinc-600 hover:text-blue-400 transition-colors uppercase tracking-[0.2em] flex items-center gap-2"
-                                    >
-                                        {showRationale ? "Hide Rationale" : "Why this path?"}
-                                    </button>
-
-                                    <AnimatePresence>
-                                        {showRationale && (
-                                            <motion.p
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: "auto", opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
-                                                className="text-xs text-zinc-500 leading-relaxed font-light overflow-hidden max-w-sm mx-auto px-6"
-                                            >
-                                                {proposal.rational}
-                                            </motion.p>
-                                        )}
-                                    </AnimatePresence>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    onClick={() => setProposal(null)}
-                                    className="bg-zinc-800 text-zinc-400 font-bold py-5 rounded-[1.8rem] text-xs uppercase tracking-widest hover:bg-zinc-700 transition-colors"
-                                >
-                                    Re-Audit
-                                </button>
-                                <button
-                                    onClick={confirmPath}
-                                    className="bg-blue-500 text-white font-bold py-5 rounded-[1.8rem] text-xs uppercase tracking-widest hover:bg-blue-400 shadow-[0_0_30px_rgba(59,130,246,0.3)]"
-                                >
-                                    Confirm Path
-                                </button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {proposal && (
+                <StrategyCard
+                    proposal={proposal}
+                    onClose={() => setProposal(null)}
+                    onConfirm={confirmPath}
+                    onReAudit={() => setProposal(null)}
+                />
+            )}
 
             <style jsx global>{`
                 .custom-scrollbar::-webkit-scrollbar {

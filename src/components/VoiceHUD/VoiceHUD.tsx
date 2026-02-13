@@ -181,9 +181,6 @@ export default function VoiceHUD() {
                     <h1 className="text-sm font-bold tracking-widest uppercase">Mind Meld // Alpha</h1>
                 </div>
                 <div className="flex items-center gap-4">
-                    <Link href="/audit" className="hover:text-white transition-colors">
-                        <LayoutGrid size={18} />
-                    </Link>
                     <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-zinc-800'}`} />
                 </div>
             </div>
@@ -312,7 +309,7 @@ export default function VoiceHUD() {
             </div>
 
             {/* 3. Interaction Zone */}
-            <div className="w-full bg-zinc-900/40 backdrop-blur-xl border-t border-white/5 rounded-t-[3rem] p-8 pb-12 flex flex-col items-center gap-8 shadow-2xl z-20">
+            <div className="w-full bg-zinc-900/40 backdrop-blur-xl border-t border-white/5 rounded-t-[3rem] p-8 pb-32 flex flex-col items-center gap-8 shadow-2xl z-20">
 
                 {/* Progress Bars with Descriptions */}
                 <div className="w-full flex flex-col gap-5 mb-2">

@@ -25,10 +25,10 @@ export async function POST(req: Request) {
             }, { status: 500 });
         }
 
-        // 2. Initialize Clients
-        const supabase = createClient(supabaseUrl, supabaseKey);
+        // 2. Initialize Clients (Note: supabase instance is created for potential future use or RLS verification, but currently only genAI is used for extraction)
+        // const supabase = createClient(supabaseUrl, supabaseKey); 
         const genAI = new GoogleGenerativeAI(geminiApiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Adjusted to 1.5-flash as per console log below
 
         // 3. Prompt Gemini
         const prompt = `
@@ -57,11 +57,12 @@ export async function POST(req: Request) {
             let parsed;
             try {
                 parsed = JSON.parse(jsonStr);
-            } catch (pErr: any) {
+            } catch (pErr) {
+                const error = pErr as Error;
                 console.error("❌ JSON Parse Failed. Raw:", jsonStr);
                 return NextResponse.json({
                     error: "AI returned invalid JSON",
-                    message: pErr.message,
+                    message: error.message,
                     raw: responseText
                 }, { status: 500 });
             }
@@ -82,17 +83,19 @@ export async function POST(req: Request) {
 
             return NextResponse.json({ parsed: normalized });
 
-        } catch (innerErr: any) {
-            console.error("❌ Processing failed:", innerErr);
+        } catch (innerErr) {
+            const error = innerErr as Error;
+            console.error("❌ Processing failed:", error);
             return NextResponse.json({
                 error: "Processing failed",
-                message: innerErr.message,
-                details: innerErr.toString()
+                message: error.message,
+                details: error.toString()
             }, { status: 500 });
         }
 
-    } catch (outerErr: any) {
-        console.error("❌ Server Error:", outerErr);
-        return NextResponse.json({ error: "Internal server error", message: outerErr.message }, { status: 500 });
+    } catch (outerErr) {
+        const error = outerErr as Error;
+        console.error("❌ Server Error:", error);
+        return NextResponse.json({ error: "Internal server error", message: error.message }, { status: 500 });
     }
 }

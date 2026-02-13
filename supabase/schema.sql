@@ -29,5 +29,9 @@ create table if not exists tasks (
   
   -- Context
   context_tags text[], -- ['tax', 'llc', 'personal']
-  evidence_required boolean default false -- True if Impact > $1000
+  evidence_required boolean default false, -- True if Impact > $1000
+
+  -- Execution State
+  is_focus boolean default false,
+  completed_at timestamptz
 );

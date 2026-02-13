@@ -15,6 +15,8 @@ export const metadata: Metadata = {
   },
 };
 
+import BottomNav from "@/components/BottomNav";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -22,7 +24,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={`${inter.className} bg-black text-white`}>
+        {children}
+        <BottomNav />
+      </body>
     </html>
   );
 }
