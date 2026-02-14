@@ -5,6 +5,8 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Mic, Target, Zap, LayoutGrid } from "lucide-react";
 
+import { useVoice } from "@/context/VoiceContext";
+
 const NAV_ITEMS = [
     { href: "/", label: "Home", icon: Target },
     { href: "/dump", label: "Dump", icon: Mic },
@@ -13,6 +15,7 @@ const NAV_ITEMS = [
 
 export default function BottomNav() {
     const pathname = usePathname();
+    const { isRecording, startRecording, stopRecording, processing } = useVoice();
 
     return (
         <div className="fixed bottom-0 left-0 right-0 p-6 z-50 pointer-events-none">
@@ -20,6 +23,46 @@ export default function BottomNav() {
                 {NAV_ITEMS.map((item) => {
                     const isActive = pathname === item.href;
                     const Icon = item.icon;
+                    const isDump = item.href === "/dump";
+
+                    if (isDump) {
+                        return (
+                            <div key={item.href} className="relative flex-1 flex flex-col items-center group">
+                                <motion.button
+                                    onClick={() => {
+                                        if (pathname !== "/dump") {
+                                            window.location.href = "/dump";
+                                        } else {
+                                            isRecording ? stopRecording() : startRecording();
+                                        }
+                                    }}
+                                    disabled={processing}
+                                    className={`relative -top-8 w-16 h-16 rounded-full flex items-center justify-center transition-all duration-500 shadow-2xl ${isRecording
+                                            ? "bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.4)] scale-110"
+                                            : isActive
+                                                ? "bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.3)]"
+                                                : "bg-zinc-800 text-zinc-400"
+                                        }`}
+                                >
+                                    {processing ? (
+                                        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <Icon size={28} />
+                                    )}
+                                    {isRecording && (
+                                        <motion.div
+                                            animate={{ scale: [1, 1.4, 1], opacity: [0.5, 0, 0.5] }}
+                                            transition={{ repeat: Infinity, duration: 2 }}
+                                            className="absolute inset-0 rounded-full border-2 border-red-500"
+                                        />
+                                    )}
+                                </motion.button>
+                                <span className={`absolute bottom-2 text-[9px] font-bold uppercase tracking-widest ${isActive ? "text-blue-400" : "text-zinc-600"}`}>
+                                    {isRecording ? "Stop" : item.label}
+                                </span>
+                            </div>
+                        );
+                    }
 
                     return (
                         <Link

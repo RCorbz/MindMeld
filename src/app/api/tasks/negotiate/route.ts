@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { PERSONAS } from "@/lib/personas.config";
 
 export async function POST(req: Request) {
     try {
-        const { tasks } = await req.json();
+        const { tasks, personaIds } = await req.json();
         const geminiApiKey = process.env.GEMINI_API_KEY;
 
         if (!geminiApiKey) {
@@ -13,26 +14,30 @@ export async function POST(req: Request) {
         const genAI = new GoogleGenerativeAI(geminiApiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+        const selectedPersonas = PERSONAS.filter(p => personaIds?.includes(p.id));
+        const boardDescription = selectedPersonas.map(p => `- ${p.name}: ${p.promptSnippet}`).join("\n");
+
         const prompt = `
-            You are the Consiglieri, a ruthless but wise strategic advisor.
-            Your goal is to maximize ROI for the user.
-            
+            You are a Board Meeting. You must evaluate the user's task list from multiple perspectives and come to a consensus on a "Strategic Path Forward".
+
+            THE BOARD MEMBERS:
+            ${boardDescription}
+
             Current Task Backlog (JSON):
             ${JSON.stringify(tasks, null, 2)}
             
-            Based on this list, identify a "Strategic Path Forward".
+            As the Board, identify a single, unified path.
             Return ONLY a JSON object with this structure:
             {
-              "focus_tasks": ["uuid1", "uuid2"], // The IDs of 2-3 tasks to do today
-              "prune_tasks": ["uuid3"], // The ID of 1-2 low-value tasks to kill
-              "outcome_prediction": "Quantified statement (e.g. 'Secure $10,000 + 5 hours reclaimed')",
-              "rational": "Short tactical explanation for why this path is mathematically optimal"
+              "focus_tasks": ["uuid1", "uuid2"], // 2-3 tasks to execute today
+              "prune_tasks": ["uuid3"], // 1-2 low-value tasks to delete
+              "outcome_prediction": "Quantified board projection (e.g. 'Projected $12,500 capture + 8 Focus Hours')",
+              "rational": "A summary of the board's debate and final consensus logic. Mention specific members' viewpoints if they clash (e.g. 'Warren pushed for the high-value pivot while Goggins demanded we stop avoiding the harder task X'). Max 3 sentences."
             }
             
             Requirements:
-            - focus_tasks MUST be the highest ROI items.
-            - prune_tasks MUST be the lowest ROI items.
-            - outcome_prediction MUST be quantified (financial/time), punchy, and numerical.
+            - Focus on the HIGHEST ROI items that satisfy the board's diverse biases.
+            - The "rational" MUST feel like it came from a board meeting.
         `;
 
         const result = await model.generateContent(prompt);
@@ -41,13 +46,14 @@ export async function POST(req: Request) {
         try {
             const proposal = JSON.parse(text);
             return NextResponse.json({ proposal });
-        } catch (parseErr) {
-            console.error("JSON Parse Error:", text);
-            return NextResponse.json({ error: "Invalid AI response format" }, { status: 500 });
+        } catch {
+            console.error("Board JSON Parse Error:", text);
+            return NextResponse.json({ error: "Invalid Board response format" }, { status: 500 });
         }
 
-    } catch (err: any) {
-        console.error("❌ Consiglieri Error:", err);
-        return NextResponse.json({ error: "Failed to negotiate", message: err.message }, { status: 500 });
+    } catch (err) {
+        const error = err as Error;
+        console.error("❌ Board Room Error:", error);
+        return NextResponse.json({ error: "Board Meeting Failed", message: error.message }, { status: 500 });
     }
 }

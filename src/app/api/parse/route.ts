@@ -28,7 +28,7 @@ export async function POST(req: Request) {
         // 2. Initialize Clients (Note: supabase instance is created for potential future use or RLS verification, but currently only genAI is used for extraction)
         // const supabase = createClient(supabaseUrl, supabaseKey); 
         const genAI = new GoogleGenerativeAI(geminiApiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Adjusted to 1.5-flash as per console log below
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         // 3. Prompt Gemini
         const prompt = `
@@ -69,16 +69,14 @@ export async function POST(req: Request) {
 
             console.log("✅ Parsed JSON:", parsed);
 
-            console.log("✅ Parsed JSON:", parsed);
-
             // 4. Data Normalization (for preview)
             const normalized = {
                 title: parsed.title || transcript.substring(0, 50),
-                impact_score: parseInt(parsed.impact_score) || 1,
-                financial_value: parseFloat(String(parsed.financial_value || 0).replace(/[^0-9.]/g, '')),
-                effort_hours: parseFloat(String(parsed.effort_hours || 1.0).replace(/[^0-9.]/g, '')),
-                deadline: parsed.deadline,
-                urgency: parseInt(parsed.urgency) || 1,
+                impact_score: Math.min(10, Math.max(1, parseInt(parsed.impact_score) || 5)),
+                financial_value: parseFloat(String(parsed.financial_value || 0).replace(/[^0-9.]/g, '')) || 0,
+                effort_hours: parseFloat(String(parsed.effort_hours || 1.0).replace(/[^0-9.]/g, '')) || 1.0,
+                deadline: parsed.deadline || null,
+                urgency: Math.min(10, Math.max(1, parseInt(parsed.urgency) || 5)),
             };
 
             return NextResponse.json({ parsed: normalized });

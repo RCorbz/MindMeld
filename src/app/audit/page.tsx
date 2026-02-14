@@ -6,18 +6,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     Clock,
     Zap,
-    ArrowLeft,
     Trash2,
-    X,
     ChevronRight,
     BrainCircuit,
-    ShieldAlert
 } from "lucide-react";
-import Link from "next/link";
-
 import StrategyCard from "@/components/StrategyCard";
+import { PERSONAS, DEFAULT_PERSONA_IDS } from "@/lib/personas.config";
+import * as Icons from "lucide-react";
 
 interface Task {
+    // ... existing interface
     id: string;
     title: string;
     impact_score: number;
@@ -40,6 +38,7 @@ export default function AuditPage() {
     const [timeLeft, setTimeLeft] = useState(600); // 10 minutes session
     const [isConsiglieriLoading, setIsConsiglieriLoading] = useState(false);
     const [proposal, setProposal] = useState<Proposal | null>(null);
+    const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>(DEFAULT_PERSONA_IDS);
     const router = useRouter();
 
     const confirmPath = async () => {
@@ -99,7 +98,10 @@ export default function AuditPage() {
             const res = await fetch("/api/tasks/negotiate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tasks }),
+                body: JSON.stringify({
+                    tasks,
+                    personaIds: selectedPersonaIds
+                }),
             });
             const data = await res.json();
             if (data.proposal) {
@@ -246,10 +248,45 @@ export default function AuditPage() {
 
             {/* 3. Mobile Bottom Action */}
             <div className="fixed bottom-28 left-0 right-0 p-6 z-40 pointer-events-none">
-                <div className="max-w-md mx-auto flex items-center justify-center pointer-events-auto">
+                <div className="max-w-md mx-auto flex flex-col gap-4 pointer-events-auto">
+
+                    {/* Persona Selector */}
+                    <div className="flex justify-center gap-2 p-2 bg-zinc-900/60 backdrop-blur-xl border border-white/5 rounded-3xl">
+                        {PERSONAS.map((p) => {
+                            const isSelected = selectedPersonaIds.includes(p.id);
+                            // @ts-expect-error - dynamic icon lookup
+                            const Icon = Icons[p.avatar] || Icons.HelpCircle;
+
+                            return (
+                                <button
+                                    key={p.id}
+                                    onClick={() => {
+                                        setSelectedPersonaIds(prev =>
+                                            isSelected
+                                                ? prev.filter(id => id !== p.id)
+                                                : [...prev, p.id]
+                                        );
+                                    }}
+                                    className={`relative flex items-center justify-center w-12 h-12 rounded-2xl border transition-all ${isSelected
+                                        ? "bg-blue-500/10 border-blue-500/40 text-blue-400"
+                                        : "bg-zinc-800/50 border-white/5 text-zinc-500"
+                                        }`}
+                                >
+                                    <Icon size={20} />
+                                    {isSelected && (
+                                        <motion.div
+                                            layoutId="persona-corner"
+                                            className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-zinc-900"
+                                        />
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+
                     <button
                         onClick={getAdvice}
-                        disabled={isConsiglieriLoading || tasks.length === 0}
+                        disabled={isConsiglieriLoading || tasks.length === 0 || selectedPersonaIds.length === 0}
                         className="w-full bg-zinc-900/80 backdrop-blur-xl border border-white/10 hover:border-blue-500/50 text-white font-bold py-5 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-50"
                     >
                         {isConsiglieriLoading ? (
@@ -257,9 +294,9 @@ export default function AuditPage() {
                         ) : (
                             <>
                                 <div className="bg-blue-500 p-2 rounded-xl text-black shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-                                    <BrainCircuit size={20} />
+                                    <Icons.Users size={20} />
                                 </div>
-                                <span className="text-sm tracking-[0.1em] uppercase py-1">Negotiate Strategy</span>
+                                <span className="text-sm tracking-[0.1em] uppercase py-1">Call a Board Meeting</span>
                             </>
                         )}
                     </button>
@@ -270,6 +307,7 @@ export default function AuditPage() {
             {proposal && (
                 <StrategyCard
                     proposal={proposal}
+                    personaIds={selectedPersonaIds}
                     onClose={() => setProposal(null)}
                     onConfirm={confirmPath}
                     onReAudit={() => setProposal(null)}

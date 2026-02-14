@@ -16,6 +16,7 @@ export const metadata: Metadata = {
 };
 
 import BottomNav from "@/components/BottomNav";
+import { VoiceProvider } from "@/context/VoiceContext";
 
 export default function RootLayout({
   children,
@@ -25,8 +26,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} bg-black text-white`}>
-        {children}
-        <BottomNav />
+        <VoiceProvider>
+          {children}
+          <BottomNav />
+        </VoiceProvider>
       </body>
     </html>
   );

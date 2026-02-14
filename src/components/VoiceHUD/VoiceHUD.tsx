@@ -1,176 +1,38 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Mic, Check, LayoutGrid } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { createClient, LiveClient, LiveTranscriptionEvents } from "@deepgram/sdk";
-import { VOICE_CONFIG } from "@/lib/voice.config";
+import { useVoice } from "@/context/VoiceContext";
+import { Check } from "lucide-react"; // Keep Check for the Task Logged UI
 
 export default function VoiceHUD() {
-    const [isRecording, setIsRecording] = useState(false);
-    const [transcript, setTranscript] = useState("");
-    const [connection, setConnection] = useState<LiveClient | null>(null);
-    const [processing, setProcessing] = useState(false);
-    const [taskId, setTaskId] = useState<string | null>(null);
+    const {
+        isRecording,
+        processing,
+        transcript,
+        currentStep,
+        accumulatedData,
+        tide,
+        error,
+        taskId,
+        isReviewing,
+        parsedData,
+        confirmTask,
+        resetForNextTask,
+        setParsedData,
+        setError,
+        startRecording, // Added from context
+        stopRecording   // Added from context
+    } = useVoice();
 
-    // T.I.D.E. State
-    const [tide, setTide] = useState({
-        T: false, // Task
-        I: false, // Impact
-        D: false, // Deadline
-        E: false, // Effort
-    });
-
-    // Review state
-    const [isReviewing, setIsReviewing] = useState(false);
-    const [parsedData, setParsedData] = useState<any>(null);
-
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-
-    // 1. T.I.D.E. Regex Logic
-    useEffect(() => {
-        if (!transcript) return;
-
-        const lower = transcript.toLowerCase();
-
-        setTide({
-            // Topic: Detected if > 5 words
-            T: lower.split(/\s+/).filter(w => w.length > 0).length > 5,
-            // Impact: Monies (plural), importance
-            I: /\b(\$|dollars?|revenue|critical|important|high stakes|priority|urgent)\b/.test(lower),
-            // Deadline: Timeframes
-            D: /\b(today|tomorrow|friday|monday|tuesday|wednesday|thursday|january|february|soon|deadline|next week)\b/.test(lower),
-            // Effort: Duration (plural, and additional common terms like 'hrs')
-            E: /\b(hours?|minutes?|days?|weeks?|months?|mins?|secs?|hrs?|time)\b/.test(lower),
-        });
-    }, [transcript]);
-
-    const transcriptRef = useRef("");
-
-    // 2. Start Recording (same as before)
-    const startRecording = async () => {
-        setIsRecording(true);
-        setTranscript("");
-        transcriptRef.current = "";
-        setIsReviewing(false); // Reset review
-        setTaskId(null); // Reset task id
-
-        try {
-            const response = await fetch("/api/transcribe");
-            const data = await response.json();
-            if (!data.key) throw new Error("No key returned");
-            const deepgram = createClient(data.key);
-            const conn = deepgram.listen.live(VOICE_CONFIG);
-
-            conn.on(LiveTranscriptionEvents.Open, () => {
-                navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-                    const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-                    mediaRecorderRef.current = mediaRecorder;
-                    mediaRecorder.addEventListener("dataavailable", (event) => {
-                        if (event.data.size > 0 && conn.getReadyState() === 1) conn.send(event.data);
-                    });
-                    mediaRecorder.start(250);
-                });
-            });
-
-            conn.on(LiveTranscriptionEvents.Transcript, (data) => {
-                const sentence = data.channel.alternatives[0]?.transcript;
-                if (sentence) {
-                    const newTranscript = transcriptRef.current + " " + sentence;
-                    transcriptRef.current = newTranscript;
-                    setTranscript(newTranscript);
-                }
-            });
-
-            setConnection(conn);
-        } catch (error) {
-            setIsRecording(false);
-        }
+    // 1. Step Prompts & Instructions
+    const STEP_INFO: Record<string, { title: string, sub: string }> = {
+        topic: { title: "Describe the Task", sub: "What needs to be done?" },
+        impact: { title: "Define the Impact", sub: "Why is this a priority?" },
+        effort: { title: "Estimate Effort", sub: "How many hours to execute?" },
+        deadline: { title: "Timeline", sub: "When is the hard deadline?" },
+        review: { title: "Final Review", sub: "Confirm task details" }
     };
-
-    // 3. Stop Recording -> Review
-    const stopRecording = async () => {
-        setIsRecording(false);
-        if (mediaRecorderRef.current) {
-            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-            mediaRecorderRef.current.stop();
-        }
-        if (connection) connection.requestClose();
-
-        const finalTranscript = transcriptRef.current;
-
-        if (finalTranscript.length > 5) {
-            setProcessing(true);
-            try {
-                const response = await fetch("/api/parse", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ transcript: finalTranscript }),
-                });
-
-                const data = await response.json();
-                if (response.ok && data.parsed) {
-                    setParsedData(data.parsed);
-                    setIsReviewing(true); // Switch to review mode
-                }
-            } catch (err) {
-                console.error("Parse Error:", err);
-            } finally {
-                setProcessing(false);
-            }
-        }
-    };
-
-    // 4. Confirm & Save
-    const confirmTask = async () => {
-        if (!parsedData) return;
-        setProcessing(true);
-        try {
-            const response = await fetch("/api/tasks", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(parsedData),
-            });
-            const data = await response.json();
-            if (response.ok && data.id) {
-                setTaskId(data.id.substring(0, 8).toUpperCase());
-                setIsReviewing(false);
-            }
-        } catch (err) {
-            console.error("Confirm Error:", err);
-        } finally {
-            setProcessing(false);
-        }
-    };
-
-    const resetForNextTask = () => {
-        setTaskId(null);
-        setTranscript("");
-        setIsReviewing(false);
-        setParsedData(null);
-        setTide({ T: false, I: false, D: false, E: false });
-    };
-
-    const ProgressBar = ({ label, subLabel, active, color }: { label: string, subLabel: string, active: boolean, color: string }) => (
-        <div className="flex flex-col gap-1 w-full max-w-xs transition-all duration-300">
-            <div className="flex justify-between items-end">
-                <div className="flex flex-col">
-                    <span className={`text-[10px] font-bold tracking-[0.2em] ${active ? "text-white" : "text-zinc-500"}`}>{label}</span>
-                    <span className="text-[9px] text-zinc-600 font-medium tracking-wide">{subLabel}</span>
-                </div>
-                <span className={`text-[9px] font-bold tracking-widest ${active ? "text-green-400" : "opacity-0"}`}>DETECTED</span>
-            </div>
-            <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden mt-1">
-                <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: active ? "100%" : "0%" }}
-                    className={`h-full ${color} shadow-[0_0_10px_currentColor]`}
-                    transition={{ duration: 0.5, ease: "easeOut" }}
-                />
-            </div>
-        </div>
-    );
 
     return (
         <div className="fixed inset-0 flex flex-col items-center justify-between text-white bg-black select-none font-sans">
@@ -186,7 +48,7 @@ export default function VoiceHUD() {
             </div>
 
             {/* 2. Main Content Stream */}
-            <div className="flex-1 w-full px-6 flex flex-col justify-center items-center z-10 pb-20">
+            <div className="flex-1 w-full px-6 flex flex-col justify-center items-center z-10 pb-32">
                 {taskId ? (
                     <motion.div
                         initial={{ scale: 0.9, opacity: 0 }}
@@ -273,70 +135,134 @@ export default function VoiceHUD() {
                             />
                         </div>
 
+                        {error && (
+                            <p className="text-[10px] text-red-400 font-bold uppercase tracking-widest text-center mt-2">{error}</p>
+                        )}
+
                         <button
                             onClick={confirmTask}
                             disabled={processing}
-                            className="w-full bg-blue-500 hover:bg-blue-400 text-white font-bold py-4 rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all active:scale-[0.98] disabled:opacity-50"
+                            className={`w-full font-bold py-4 rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all active:scale-[0.98] disabled:opacity-50 ${error ? "bg-zinc-800 text-zinc-500" : "bg-blue-500 hover:bg-blue-400 text-white"
+                                }`}
                         >
-                            {processing ? "SAVING..." : "CONFIRM & LOG TASK"}
+                            {processing ? "SAVING..." : error ? "TRY AGAIN" : "CONFIRM & LOG TASK"}
                         </button>
                     </motion.div>
                 ) : processing ? (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        className="flex flex-col items-center gap-4"
+                        className="flex flex-col items-center gap-4 py-12"
                     >
                         <div className="w-12 h-12 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
-                        <p className="text-zinc-500 text-xs tracking-[0.2em] animate-pulse">ANALYZING INTENT...</p>
+                        <p className="text-zinc-500 text-xs tracking-[0.2em] animate-pulse uppercase">Syncing {currentStep}...</p>
                     </motion.div>
+                ) : error ? (
+                    <div className="text-center w-full px-12">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="flex flex-col gap-4"
+                        >
+                            <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center text-red-500 mx-auto">
+                                {/* Mic icon removed as per instruction */}
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <h2 className="text-2xl font-light tracking-tight text-red-400">
+                                    Processing Error
+                                </h2>
+                                <p className="text-[10px] font-bold tracking-[0.2em] text-red-500/50 uppercase max-w-xs mx-auto leading-relaxed">
+                                    {error}
+                                </p>
+                            </div>
+                            <p className="text-[10px] font-medium text-zinc-600 italic">
+                                Try speaking clearly and clicking the button to retry...
+                            </p>
+                        </motion.div>
+                    </div>
                 ) : transcript ? (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="text-left w-full max-w-md"
-                    >
-                        <p className="text-3xl font-light leading-snug tracking-wide text-zinc-100">
-                            {transcript}
-                            <span className="inline-block w-2 h-6 bg-green-500 ml-1 animate-pulse" />
-                        </p>
-                    </motion.div>
+                    <div className="w-full max-w-md h-[50vh] flex flex-col justify-center">
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-zinc-900/20 backdrop-blur-sm rounded-3xl p-6 border border-white/5 overflow-y-auto custom-scrollbar"
+                        >
+                            <p className="text-2xl font-light leading-snug tracking-wide text-zinc-100 italic">
+                                "{transcript}"
+                                <span className="inline-block w-1.5 h-6 bg-green-500 ml-2 animate-pulse align-middle" />
+                            </p>
+                        </motion.div>
+                    </div>
                 ) : (
-                    <div className="text-center w-full opacity-30">
-                        <p className="text-4xl font-thin tracking-tighter text-zinc-700">Ready</p>
+                    <div className="text-center w-full px-12">
+                        <motion.div
+                            key={currentStep}
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="flex flex-col gap-3"
+                        >
+                            <h2 className="text-4xl font-thin tracking-tighter text-white/90">
+                                {STEP_INFO[currentStep].title}
+                            </h2>
+                            <p className="text-[10px] font-bold tracking-[0.4em] text-zinc-500 uppercase ml-1">
+                                {STEP_INFO[currentStep].sub}
+                            </p>
+                        </motion.div>
                     </div>
                 )}
             </div>
 
-            {/* 3. Interaction Zone */}
-            <div className="w-full bg-zinc-900/40 backdrop-blur-xl border-t border-white/5 rounded-t-[3rem] p-8 pb-32 flex flex-col items-center gap-8 shadow-2xl z-20">
+            {/* 3. Interaction Zone: Live Card Builder */}
+            <div className="w-full bg-zinc-950/80 backdrop-blur-3xl border-t border-white/5 rounded-t-[3rem] p-8 pb-32 flex flex-col items-center gap-10 shadow-[0_-20px_50px_rgba(0,0,0,0.5)] z-20">
 
-                {/* Progress Bars with Descriptions */}
-                <div className="w-full flex flex-col gap-5 mb-2">
-                    <ProgressBar label="TOPIC" subLabel="What needs to be done?" active={tide.T} color="bg-blue-400" />
-                    <ProgressBar label="IMPACT" subLabel="Why is it critical?" active={tide.I} color="bg-purple-400" />
-                    <ProgressBar label="EFFORT" subLabel="Time estimate?" active={tide.E} color="bg-orange-400" />
-                    <ProgressBar label="DEADLINE" subLabel="When is it due?" active={tide.D} color="bg-green-400" />
-                </div>
+                {/* Live Card Preview */}
+                {!taskId && !isReviewing && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="w-full max-w-sm bg-zinc-900/40 border border-white/5 rounded-2xl p-5 flex flex-col gap-4 relative overflow-hidden"
+                    >
+                        {/* Shimmer effect if not detected yet */}
+                        <div className="flex flex-col gap-2">
+                            {tide.T ? (
+                                <motion.h3 initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-sm font-medium text-white truncate pr-16">{accumulatedData.title}</motion.h3>
+                            ) : (
+                                <div className="h-4 w-3/4 bg-zinc-800/50 rounded animate-pulse" />
+                            )}
+                            <div className="flex items-center gap-3">
+                                {tide.I ? (
+                                    <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[10px] font-bold text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded border border-purple-400/20">IMPACT {accumulatedData.impact_score}</motion.span>
+                                ) : (
+                                    <div className="h-3 w-16 bg-zinc-800/30 rounded" />
+                                )}
+                                {tide.E ? (
+                                    <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[10px] font-bold text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded border border-orange-400/20">{accumulatedData.effort_hours} HRS</motion.span>
+                                ) : (
+                                    <div className="h-3 w-12 bg-zinc-800/30 rounded" />
+                                )}
+                                {tide.D ? (
+                                    <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[10px] font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded border border-green-400/20">{accumulatedData.deadline}</motion.span>
+                                ) : (
+                                    <div className="h-3 w-20 bg-zinc-800/30 rounded" />
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Step indicator dot */}
+                        <div className="absolute top-5 right-5 flex gap-1">
+                            {["topic", "impact", "effort", "deadline"].map((s, idx) => (
+                                <div
+                                    key={s}
+                                    className={`w-1 h-1 rounded-full transition-all duration-500 ${currentStep === s ? "w-3 bg-blue-500" : tide[Object.keys(tide)[idx] as keyof typeof tide] ? "bg-zinc-400" : "bg-zinc-800"
+                                        }`}
+                                />
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
 
                 {/* Mic Button & Prompt */}
-                <div className="flex flex-col items-center gap-4">
-                    <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${isRecording
-                            ? "bg-red-500 text-white shadow-[0_0_40px_rgba(239,68,68,0.4)]"
-                            : "bg-white text-black shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-                            }`}
-                        onMouseDown={startRecording}
-                        onMouseUp={stopRecording}
-                        onTouchStart={startRecording}
-                        onTouchEnd={stopRecording}
-                        disabled={processing}
-                    >
-                        <Mic size={32} strokeWidth={2} />
-                    </motion.button>
-                    <p className="text-[10px] font-bold tracking-[0.2em] text-zinc-500 uppercase">Hold to Capture</p>
-                </div>
+                {/* This section is removed as per the instruction */}
             </div>
         </div>
     );
