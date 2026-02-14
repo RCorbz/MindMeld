@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Mic, Target, Zap, LayoutGrid } from "lucide-react";
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
 
 export default function BottomNav() {
     const pathname = usePathname();
+    const router = useRouter();
     const { isRecording, startRecording, stopRecording, processing } = useVoice();
 
     return (
@@ -31,17 +32,17 @@ export default function BottomNav() {
                                 <motion.button
                                     onClick={() => {
                                         if (pathname !== "/dump") {
-                                            window.location.href = "/dump";
+                                            router.push("/dump");
                                         } else {
                                             isRecording ? stopRecording() : startRecording();
                                         }
                                     }}
                                     disabled={processing}
                                     className={`relative -top-8 w-16 h-16 rounded-full flex items-center justify-center transition-all duration-500 shadow-2xl ${isRecording
-                                            ? "bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.4)] scale-110"
-                                            : isActive
-                                                ? "bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.3)]"
-                                                : "bg-zinc-800 text-zinc-400"
+                                        ? "bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.4)] scale-110"
+                                        : isActive
+                                            ? "bg-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.3)]"
+                                            : "bg-zinc-800 text-zinc-400"
                                         }`}
                                 >
                                     {processing ? (

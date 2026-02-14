@@ -3,9 +3,12 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useVoice } from "@/context/VoiceContext";
-import { Check } from "lucide-react"; // Keep Check for the Task Logged UI
+import { Check } from "lucide-react";
+import { useState, useEffect } from "react";
 
 export default function VoiceHUD() {
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => setMounted(true), []);
     const {
         isRecording,
         processing,
@@ -33,6 +36,8 @@ export default function VoiceHUD() {
         deadline: { title: "Timeline", sub: "When is the hard deadline?" },
         review: { title: "Final Review", sub: "Confirm task details" }
     };
+
+    if (!mounted) return <div className="fixed inset-0 bg-black" />;
 
     return (
         <div className="fixed inset-0 flex flex-col items-center justify-between text-white bg-black select-none font-sans">
